@@ -1,0 +1,50 @@
+# Local development stack: the app + PostgreSQL (a stand-in for RDS).
+# Start:  docker compose up --build -d
+# Stop:   docker compose down        (add -v to also delete the database data)
+ 
+services:
+ 
+  # ---- PostgreSQL: plays the role of RDS on your laptop ----
+  db:
+    image: postgres:16              # pinned version (RDS will run a fixed version too)
+    restart: unless-stopped
+    shm_size: 128mb                 # shared memory for PostgreSQL
+    environment:                    # read by the postgres image on first start
+      POSTGRES_USER: appuser
+      POSTGRES_PASSWORD: secret     # fine for local only, never commit real passwords
+      POSTGRES_DB: appdb
+    volumes:
+      - pgdata:/var/lib/postgresql/data   # keep data when the container is recreated
+    healthcheck:                    # "healthy" only when PostgreSQL accepts connections
+      test: ["CMD-SHELL", "pg_isready -U appuser -d appdb"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+ 
+  # ---- Your Python app, built from the Dockerfile in this folder ----
+  app:
+    build: .                        # build the image from ./Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8000:8000"                 # laptop:container
+    environment:
+      # host "db" = the service name above (Compose gives each service a DNS name)
+      DATABASE_URL: postgresql+psycopg://appuser:secret@db:5432/appdb
+      APP_ENV: local
+      APP_VERSION: dev
+    depends_on:
+      db:
+        condition: service_healthy  # wait until PostgreSQL is ready, not just started
+ 
+  # ---- Adminer: web UI to browse the database (optional) ----
+  adminer:
+    image: adminer
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      - db
+ 
+volumes:
+  pgdata:                           # named volume managed by Docker
+ 
